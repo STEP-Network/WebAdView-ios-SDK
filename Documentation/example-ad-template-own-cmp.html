@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<!--
+  WebAdView SDK — ad template page (bring-your-own-CMP mode)
+
+  Use this template when the app runs its OWN consent platform and the SDK
+  is initialized with TCFConsentProvider (GUIDE.md §3b). The app injects
+  the user's consent into this page through the standard __tcfapi
+  mechanism, so Google/Yield Manager read it directly.
+
+  For that to work this page must contain NO consent code of its own —
+  that is the only difference from example-ad-template.html (standard
+  mode, which carries the Didomi web tag).
+
+  Copy this file and host it on your domain
+  (WebAdViewSDKConfig.adTemplateURL). Contract details: bridge-contract.md.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ad-template</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- ================================================================
+         1. Ad delivery (STEP Network Yield Manager)
+         The Yield Manager tag is provided by STEP Network. Apps must use
+         STEP Network's App workspace tag (below) — it carries the app ad
+         units and the remote per-domain lazy-load values
+         (window.stepnetwork.lazyLoad) the SDK reads back. sn_app=true
+         marks this traffic as in-app for targeting/reporting.
+         ================================================================ -->
+    <script src="https://Ccdd5G5CqqyMTqjrF.ay.delivery/manager/Ccdd5G5CqqyMTqjrF" type="text/javascript"
+        referrerpolicy="no-referrer-when-downgrade"></script>
+
+    <script>
+        window.googletag = window.googletag || {};
+        googletag.cmd = googletag.cmd || [];
+        googletag.cmd.push(function () {
+            googletag.pubads().setTargeting('sn_app', 'true');
+        });
+    </script>
+
+    <!-- ================================================================
+         2. Layout
+         The ad fills the webview edge to edge; the native SDK sizes the
+         webview itself.
+         ================================================================ -->
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            min-height: 100vh;
+            background: #fff;
+        }
+
+        .ad-container {
+            width: 100vw;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Styles the diagnostics panel the SDK injects — only present when
+           the app runs with SDK debug logging enabled; unused in production. */
+        .debug-info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 9999;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="ad-container"></div>
+
+    <!-- ================================================================
+         3. Native bridge
+         The SDK injects window.stepnetwork.adUnitId; this script creates
+         the ad slot for it, asks Yield Manager to display it, exposes the
+         lazy-load render trigger, and reports the rendered ad size back
+         to the app (the SDK waits for adSize before sizing the webview).
+         ================================================================ -->
+    <script>
+        function waitForAdUnitId(callback, maxTries = 500, tries = 0) {
+            if (window.stepnetwork && window.stepnetwork.adUnitId) {
+                callback(window.stepnetwork.adUnitId);
+            } else if (tries < maxTries) {
+                setTimeout(() => waitForAdUnitId(callback, maxTries, tries + 1), 10);
+            } else {
+                console.error('adUnitId was not set in time');
+            }
+        }
+
+        function sendAdSizeToNative(width, height) {
+            // A 0-size report would collapse the ad slot in the app.
+            if (width !== 0 && height !== 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeBridge) {
+                window.webkit.messageHandlers.nativeBridge.postMessage({
+                    type: 'adSize',
+                    width: width,
+                    height: height
+                });
+            }
+        }
+
+        function observeAdSize(adDiv) {
+            if (!adDiv) return;
+            let lastWidth = 0, lastHeight = 0;
+            function notifyIfChanged() {
+                const rect = adDiv.getBoundingClientRect();
+                const width = Math.round(rect.width);
+                const height = Math.round(rect.height);
+                if (width !== lastWidth || height !== lastHeight) {
+                    lastWidth = width;
+                    lastHeight = height;
+                    sendAdSizeToNative(width, height);
+                }
+            }
+            if (window.ResizeObserver) {
+                new ResizeObserver(notifyIfChanged).observe(adDiv);
+            } else {
+                setInterval(notifyIfChanged, 250); // fallback poll
+            }
+            notifyIfChanged();
+        }
+
+        waitForAdUnitId(function (adUnitId) {
+            // Create the ad slot for the injected ad unit.
+            const adDiv = document.createElement('div');
+            adDiv.setAttribute('data-ay-manager-id', adUnitId);
+            adDiv.id = adUnitId;
+            const container = document.querySelector('.ad-container');
+            if (!container) {
+                console.error('Ad container not found');
+                return;
+            }
+            container.appendChild(adDiv);
+            observeAdSize(adDiv);
+
+            // Ask Yield Manager to display the ad.
+            window.ayManagerEnv = window.ayManagerEnv || { cmd: [] };
+            window.ayManagerEnv.cmd.push(function () {
+                ayManagerEnv.display(adUnitId);
+            });
+
+            // Render trigger used by the SDK's lazy loading: called when an
+            // ad scrolls close enough to be displayed.
+            window.ayManagerEnv.cmd.push(function () {
+                window.triggerManualAdEvent = function () {
+                    if (window.ayManagerEnv && typeof ayManagerEnv.dispatchManualEvent === 'function') {
+                        ayManagerEnv.dispatchManualEvent();
+                    } else {
+                        console.error('ayManagerEnv.dispatchManualEvent not available for unit: ' + adUnitId);
+                    }
+                };
+            });
+        });
+    </script>
+</body>
+
+</html>

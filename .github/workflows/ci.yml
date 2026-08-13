@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    name: WebAdViewCore (macOS host, fast)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build pure-logic core
+        run: swift build --target WebAdViewCore
+
+  tests:
+    name: Package tests + Example build (iOS simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # Didomi ships an iOS-only binary xcframework, so `swift test` on the
+      # macOS host can never work — everything runs against a simulator.
+      # The simulator model depends on the runner's Xcode image, so pick the
+      # first available iPhone dynamically instead of hardcoding a name.
+      - name: Pick an available iPhone simulator
+        run: |
+          SIM_NAME=$(xcrun simctl list devices available | grep -oE 'iPhone [^(]*' | head -1 | xargs)
+          echo "Using simulator: $SIM_NAME"
+          echo "SIM_NAME=$SIM_NAME" >> "$GITHUB_ENV"
+      - name: Run test suites (WebAdViewCoreTests + WebAdViewSDKTests)
+        run: |
+          xcodebuild test \
+            -scheme WebAdViewSDK \
+            -destination "platform=iOS Simulator,name=$SIM_NAME"
+      - name: Build Example app against the local package
+        run: |
+          xcodebuild build \
+            -project "Example/Project AdView.xcodeproj" \
+            -scheme "Project AdView" \
+            -destination "platform=iOS Simulator,name=$SIM_NAME" \
+            CODE_SIGNING_ALLOWED=NO

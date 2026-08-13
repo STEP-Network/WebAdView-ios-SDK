@@ -1,0 +1,17 @@
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+# A library's own resolved file is ignored by SPM when consumed as a
+# dependency; only the Example app's resolved file matters (and is committed).
+/Package.resolved
+
+# Claude Code (personal)
+CLAUDE.local.md
+
+# Internal maintainer tooling — never published
+CLAUDE.md
