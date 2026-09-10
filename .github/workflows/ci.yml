@@ -44,8 +44,9 @@ jobs:
   flutter:
     name: Flutter plugin (analyze, test, iOS simulator build)
     runs-on: macos-15
-    # The Swift SDK repository carries no Flutter folder — skip there.
-    if: ${{ hashFiles('Flutter/webadview_flutter/pubspec.yaml') != '' }}
+    # The Swift SDK repository carries no Flutter folder — run only in the
+    # Flutter repository (hashFiles() is not allowed in a job-level `if`).
+    if: github.repository == 'STEP-Network/WebAdView-Flutter-apps-on-iOS-and-Android-SDK'
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
