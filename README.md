@@ -1,21 +1,30 @@
 # WebAdView SDK
 
-A Swift Package by **STEP Network** for showing web ads in SwiftUI apps —
-privacy-compliant, lazy-loaded, and honestly measured. Built for
-publishers in the network to drop into their existing apps.
+**STEP Network's ad SDK for publisher apps** — web ads that are
+privacy-compliant, lazy-loaded, and honestly measured, for apps built
+natively for iOS **and for Flutter apps on iOS and Android**. Publishers in
+the network drop it into their existing apps.
 
-Ads render in `WKWebView` and are served through Google Ad Manager (GAM)
-via STEP Network's **Yield Manager** (the ad wrapper that controls sizes,
-formats, and demand remotely). The SDK handles Didomi consent gating,
-scroll-based lazy loading, and industry-standard (IAB/MRC) viewability
-measurement — both natively and in Google's own Active View reporting.
+It comes in two forms that behave identically:
 
-- **Platform:** iOS 16+ · Swift 5.9+ · SwiftUI (and UIKit, GUIDE §4b) —
-  and Flutter via the [`webadview_flutter`](Flutter/webadview_flutter/README.md)
-  plugin (iOS 16+ and Android 7+)
+| Your app is built with | Use | Where |
+|---|---|---|
+| **Swift** (SwiftUI, or UIKit) on iOS 16+ | the **WebAdView Swift Package** — this repository's `Sources/` | [`STEP-Network/WebAdView-ios-SDK`](https://github.com/STEP-Network/WebAdView-ios-SDK) · [QUICKSTART.md](QUICKSTART.md) · [GUIDE.md](GUIDE.md) |
+| **Flutter**, targeting iOS 16+ and Android 7+ | the **`webadview_flutter` plugin** — one Dart integration for both platforms; it runs this Swift SDK on iOS and a Kotlin port of it on Android | [`STEP-Network/WebAdView-Flutter-apps-on-iOS-and-Android-SDK`](https://github.com/STEP-Network/WebAdView-Flutter-apps-on-iOS-and-Android-SDK), folder `Flutter/webadview_flutter` · [plugin README](https://github.com/STEP-Network/WebAdView-Flutter-apps-on-iOS-and-Android-SDK/blob/main/Flutter/webadview_flutter/README.md) |
+
+Ads render in a web view (`WKWebView` on iOS, Android `WebView` on
+Android) and are served through Google Ad Manager (GAM) via STEP Network's
+**Yield Manager** (the ad wrapper that controls sizes, formats, and demand
+remotely). The SDK handles Didomi consent gating, scroll-based lazy
+loading, and industry-standard (IAB/MRC) viewability measurement — both
+natively and in Google's own Active View reporting — the same way on every
+platform.
+
+- **Platform:** iOS 16+ · Swift 5.9+ · SwiftUI (and UIKit, GUIDE §4b);
+  Flutter 3.44+ on iOS 16+ and Android 7+ (API 24)
 - **Distribution:** Swift Package Manager (Didomi is pulled automatically) —
-  `https://github.com/STEP-Network/WebAdView-ios-SDK.git`, from `1.0.0`.
-  The Flutter plugin ships from
+  `https://github.com/STEP-Network/WebAdView-ios-SDK.git`, from `1.1.0`.
+  The Flutter plugin is a Git dependency on
   `https://github.com/STEP-Network/WebAdView-Flutter-apps-on-iOS-and-Android-SDK.git`
   (that repository also carries this Swift package, which the plugin builds
   from source).
