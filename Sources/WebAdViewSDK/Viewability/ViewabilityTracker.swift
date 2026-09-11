@@ -19,6 +19,11 @@ import WebAdViewCore
 final class ViewabilityTracker: ObservableObject {
     private var engines: [String: ViewabilityEngine] = [:]
     private var contentFrames: [String: CGRect] = [:]
+    /// Ads whose creative has rendered (the page's `adSize` message). Until
+    /// then the slot is empty or still loading, so no dwell accrues and no
+    /// verdict can latch — an empty box is not a viewable ad. Cleared by
+    /// `resetImpression` (every page load starts unrendered).
+    private var rendered: Set<String> = []
     private var scrollViewBounds: CGRect = .zero
     private var isAppActive: Bool = true
     /// Whether the hosting screen is itself visible. A non-SwiftUI host (the
@@ -96,6 +101,7 @@ final class ViewabilityTracker: ObservableObject {
     func unregister(_ adUnitId: String) {
         guard engines.removeValue(forKey: adUnitId) != nil else { return }
         contentFrames.removeValue(forKey: adUnitId)
+        rendered.remove(adUnitId)
         lastSentToJS.removeValue(forKey: adUnitId)
         lastClip.removeValue(forKey: adUnitId)
         lastLogTime.removeValue(forKey: adUnitId)
@@ -118,13 +124,24 @@ final class ViewabilityTracker: ObservableObject {
         evaluate()
     }
 
-    /// Re-arms the ad's engine for a new impression (webview recreated).
+    /// Re-arms the ad's engine for a new impression (webview recreated or the
+    /// template (re)loaded). Measurement stays parked until `markRendered`.
     func resetImpression(_ adUnitId: String) {
         guard let engine = engines[adUnitId] else { return }
         engine.reset()
+        rendered.remove(adUnitId)
         lastSentToJS.removeValue(forKey: adUnitId)
         lastClip.removeValue(forKey: adUnitId) // fresh webview gets an immediate clip
-        debugPrint("[SN] [VIEWABILITY] \(adUnitId): new impression — verdict re-armed")
+        debugPrint("[SN] [VIEWABILITY] \(adUnitId): new impression — verdict re-armed, waiting for the creative to render")
+        evaluate()
+    }
+
+    /// The creative has rendered (the page reported its `adSize`): dwell may
+    /// accrue from now on. Idempotent per impression.
+    func markRendered(_ adUnitId: String) {
+        guard engines[adUnitId] != nil, !rendered.contains(adUnitId) else { return }
+        rendered.insert(adUnitId)
+        debugPrint("[SN] [VIEWABILITY] \(adUnitId): creative rendered — measurement started")
         evaluate()
     }
 
@@ -192,13 +209,16 @@ final class ViewabilityTracker: ObservableObject {
 
         for (adUnitId, engine) in engines {
             guard let frame = contentFrames[adUnitId] else { continue }
+            // Viewport clips flow regardless (the controller applies them once
+            // the creative has rendered); measurement only for rendered ads.
+            forwardClipIfNeeded(adUnitId: adUnitId, adFrame: frame, viewport: viewport)
+            guard rendered.contains(adUnitId) else { continue }
             let previousState = engine.state
             let update = engine.ingest(adFrame: frame, viewport: viewport, isAppActive: isActive, at: now)
             if case .counting = engine.state { anyCounting = true }
 
             updateSubject.send(update)
             forwardToJSIfNeeded(update)
-            forwardClipIfNeeded(adUnitId: adUnitId, adFrame: frame, viewport: viewport)
             log(update, previousState: previousState, now: now)
         }
 

@@ -36,6 +36,7 @@ struct TrackerUpdateTests {
         let (tracker, _) = makeTracker()
         var received: [ViewabilityUpdate] = []
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         let sub = tracker.updates(for: "ad").sink { received.append($0) }
         defer { sub.cancel() }
 
@@ -52,6 +53,7 @@ struct TrackerUpdateTests {
         let (tracker, advance) = makeTracker()
         var latched = false
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         let sub = tracker.updates(for: "ad").sink { if $0.becameViewable { latched = true } }
         defer { sub.cancel() }
 
@@ -73,6 +75,7 @@ struct TrackerUpdateTests {
         let (tracker, _) = makeTracker()
         var received: [ViewabilityUpdate] = []
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         tracker.register("ad", mode: .video) // must be ignored
         let sub = tracker.updates(for: "ad").sink { received.append($0) }
         defer { sub.cancel() }
@@ -82,22 +85,57 @@ struct TrackerUpdateTests {
         #expect(received.last?.mode == .display)
     }
 
-    @Test("resetImpression re-arms a latched verdict")
+    @Test("resetImpression re-arms a latched verdict; the next render latches again")
     func resetImpressionRearms() {
         let (tracker, advance) = makeTracker()
-        var lastUpdate: ViewabilityUpdate?
+        var latches = 0
         tracker.register("ad", mode: .display)
-        let sub = tracker.updates(for: "ad").sink { lastUpdate = $0 }
+        tracker.markRendered("ad")
+        let sub = tracker.updates(for: "ad").sink { if $0.becameViewable { latches += 1 } }
         defer { sub.cancel() }
 
         tracker.updateScrollViewBounds(bounds)
         tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 300, width: 100, height: 100))
         advance(1.1)
         tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 301, width: 100, height: 100))
-        #expect(lastUpdate?.isViewable == true)
+        #expect(latches == 1)
 
         tracker.resetImpression("ad")
-        #expect(lastUpdate?.isViewable == false)
+        advance(1.5)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 302, width: 100, height: 100))
+        #expect(latches == 1) // parked until the new creative renders
+        tracker.markRendered("ad")
+        advance(1.1)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 303, width: 100, height: 100))
+        #expect(latches == 2)
+    }
+
+    @Test("No dwell and no verdict before the creative renders (found 2026-09-11)")
+    func nothingBeforeRender() {
+        // Regression: the slot latched a "viewable" against the EMPTY box
+        // while the page was still loading, so onViewabilityChange fired
+        // before any creative existed (and again after the load).
+        let (tracker, advance) = makeTracker()
+        var updates = 0
+        var latches = 0
+        tracker.register("ad", mode: .display)   // deliberately NOT rendered yet
+        let sub = tracker.updates(for: "ad").sink { updates += 1; if $0.becameViewable { latches += 1 } }
+        defer { sub.cancel() }
+
+        tracker.updateScrollViewBounds(bounds)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 300, width: 100, height: 100))
+        advance(1.5)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 301, width: 100, height: 100))
+        #expect(updates == 0)
+        #expect(latches == 0)
+
+        tracker.markRendered("ad")             // adSize arrived: counting starts now
+        advance(0.5)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 302, width: 100, height: 100))
+        #expect(latches == 0)                  // the 1.5 s before render do not count
+        advance(0.6)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 303, width: 100, height: 100))
+        #expect(latches == 1)
     }
 
     @Test("Consent-holdback load re-arms the impression (loadAdContent)")
@@ -120,16 +158,22 @@ struct TrackerUpdateTests {
         controller.setupViewabilityObserver(tracker: tracker)
         controller.loadViewIfNeeded() // creates the webview (loadAdContent guards on it)
 
-        // Latch against the empty container (pre-consent state).
+        // A creative rendered and latched (a previous page in this controller).
+        tracker.markRendered("div-gpt-ad-mobile_1")
         tracker.updateScrollViewBounds(bounds)
         tracker.updateContentFrame("div-gpt-ad-mobile_1", frame: CGRect(x: 0, y: 300, width: 100, height: 100))
         advance(1.1)
         tracker.updateContentFrame("div-gpt-ad-mobile_1", frame: CGRect(x: 0, y: 301, width: 100, height: 100))
         #expect(lastUpdate?.isViewable == true)
 
-        // Consent arrives → the SAME controller loads the template.
+        // Consent arrives → the SAME controller loads the template: the old
+        // verdict must not carry over, and nothing counts until the new
+        // creative renders.
         controller.loadAdContent()
-        #expect(lastUpdate?.isViewable == false) // fresh impression
+        lastUpdate = nil
+        advance(1.5)
+        tracker.updateContentFrame("div-gpt-ad-mobile_1", frame: CGRect(x: 0, y: 302, width: 100, height: 100))
+        #expect(lastUpdate == nil) // parked: no updates while the page loads
     }
 }
 
@@ -142,6 +186,7 @@ struct TrackerEmitPolicyTests {
         let (tracker, _) = makeTracker()
         var jsReceived: [ViewabilityUpdate] = []
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         let sub = tracker.jsUpdates(for: "ad").sink { jsReceived.append($0) }
         defer { sub.cancel() }
 
@@ -166,6 +211,7 @@ struct TrackerEmitPolicyTests {
         let (tracker, _) = makeTracker()
         var clips: [ViewportClipCalculator.Clip] = []
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         let sub = tracker.clipUpdates(for: "ad").sink { clips.append($0) }
         defer { sub.cancel() }
 
@@ -188,6 +234,7 @@ struct TrackerEmitPolicyTests {
         let (tracker, advance) = makeTracker()
         var lastUpdate: ViewabilityUpdate?
         tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
         let sub = tracker.updates(for: "ad").sink { lastUpdate = $0 }
         defer { sub.cancel() }
 

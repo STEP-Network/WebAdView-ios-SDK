@@ -47,6 +47,7 @@ struct WebAdScopeLazyLoadTests {
         defer { sub.cancel() }
 
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateAdFrame("ad", frame: adBelow(1000)) // beyond the 800pt fetch zone
         #expect(scope.loadState(for: "ad") == .notLoaded)
@@ -66,6 +67,7 @@ struct WebAdScopeLazyLoadTests {
     func loadStatesReplays() {
         let (scope, advance) = makeScope()
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateAdFrame("ad", frame: adBelow(500))
         advance(0.1)
@@ -92,6 +94,7 @@ struct WebAdScopeLazyLoadTests {
         defer { sub.cancel() }
 
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateAdFrame("ad", frame: adBelow(500))
         #expect(states == [.fetched])
@@ -139,6 +142,7 @@ struct WebAdScopeViewabilityTests {
         defer { sub.cancel() }
 
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateCreativeFrame("ad", frame: creative(step: 0))
         advance(0.6)
@@ -157,6 +161,7 @@ struct WebAdScopeViewabilityTests {
         defer { sub.cancel() }
 
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateCreativeFrame("ad", frame: creative(step: 0))
         advance(0.7)
@@ -189,6 +194,7 @@ struct WebAdScopeViewabilityTests {
         defer { sub.cancel() }
 
         scope.register("ad")
+        scope.tracker.markRendered("ad") // creative rendered — measurement may count
         scope.updateViewport(viewport)
         scope.updateCreativeFrame("ad", frame: creative(step: 0))
         #expect(count > 0)

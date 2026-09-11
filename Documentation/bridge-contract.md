@@ -211,6 +211,11 @@ Native resizes the ad webview to the creative's visible slice
 
 ## 5. Viewability state machine (per ad, native side)
 
+Measurement is parked until the page reports the creative's size (§2.2
+`adSize`) — no dwell accrues and no verdict latches against an empty or
+loading slot; every page load re-arms the impression and parks it again
+(2026-09-11).
+
 IAB/MRC: viewable = ≥50% of pixels for ≥1s (display) / ≥2s (video), CONTINUOUS.
 (`video` reserved — see §4.2; every public impression today runs `display`.)
 

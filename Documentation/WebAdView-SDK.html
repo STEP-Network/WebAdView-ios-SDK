@@ -370,7 +370,7 @@
 
   <h2>How the SDK does it — step by step</h2>
   <ul class="steps">
-    <li><span class="num" style="background:var(--blue)">1</span><div><h4>It always knows what's visible.</h4><p>The SDK tracks the ad's position natively, continuously — at every moment it knows exactly which part of the ad is on screen.</p></div></li>
+    <li><span class="num" style="background:var(--blue)">1</span><div><h4>It always knows what's visible.</h4><p>The SDK tracks the ad's position natively, continuously — at every moment it knows exactly which part of the ad is on screen. The clock only starts once a creative has actually rendered; an empty or still-loading slot never counts.</p></div></li>
     <li><span class="num" style="background:var(--blue)">2</span><div><h4>It makes the ad's window match.</h4><p>The window becomes exactly as big as the visible part of the ad — the part below the screen simply has no window anymore. For the user, the ad looks exactly the same.</p></div></li>
     <li><span class="num" style="background:var(--blue)">3</span><div><h4>Google now measures the truth.</h4><p>Its code still just measures the window — but the window now equals what is really on screen, so “% visible” and viewable impressions become real.</p></div></li>
     <li><span class="num" style="background:var(--blue)">4</span><div><h4>And it never disturbs anything.</h4><p>The resizing only begins once the ad is actually showing, and the ad's spot in the app keeps its size the whole time — the user never sees flickering or jumping content. Identical on iOS and Android.</p></div></li>

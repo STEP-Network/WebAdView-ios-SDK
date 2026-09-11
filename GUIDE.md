@@ -486,6 +486,9 @@ The SDK measures true on-screen viewability natively: an impression is
 continuous ≥1s — the display standard set by the IAB and the Media Rating
 Council, which ad buyers audit against. Dips below 50% and app
 backgrounding reset the timer; the verdict latches once per impression.
+Counting starts only once the creative has actually rendered (the ad page
+reports its size at that moment) — an empty or still-loading slot never
+counts, and every page load starts a fresh impression.
 
 There is nothing to configure per creative type: Google's Active View
 applies the correct standard per creative automatically inside the webview

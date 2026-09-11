@@ -831,6 +831,8 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
                 if let width = dict["width"] as? CGFloat, let height = dict["height"] as? CGFloat {
                     debugPrint("[SN] [WebAdView] [HTML] [adSize] width: \(width), height: \(height)")
                     onAdSizeChange?(CGSize(width: width, height: height))
+                    // The creative exists now: native viewability may start counting.
+                    viewabilityTrackerRef?.markRendered(adUnitId)
                     // Module-6: the creative has rendered — viewport clipping
                     // may start (apply the most recent pending clip once the
                     // container has adopted the new size).
