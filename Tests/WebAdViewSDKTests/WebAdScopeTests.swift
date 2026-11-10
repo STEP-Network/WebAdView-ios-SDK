@@ -153,6 +153,37 @@ struct WebAdScopeViewabilityTests {
         #expect(latched)
     }
 
+    @Test("detach pauses measurement and keeps the verdict; re-attached geometry resumes")
+    func detachKeepsVerdict() {
+        let (scope, advance) = makeScope()
+        var updates: [ViewabilityUpdate] = []
+        let sub = scope.viewabilityUpdates(for: "ad").sink { updates.append($0) }
+        defer { sub.cancel() }
+
+        scope.register("ad")
+        scope.tracker.markRendered("ad")
+        scope.updateViewport(viewport)
+        scope.updateCreativeFrame("ad", frame: creative(step: 0))
+        advance(1.2)
+        scope.updateCreativeFrame("ad", frame: creative(step: 1))
+        #expect(updates.last?.isViewable == true)
+
+        // The widget is disposed: the host stops reporting geometry.
+        scope.detach("ad")
+        #expect(updates.last?.isVisible == false)
+        #expect(updates.last?.isViewable == true) // latched verdict survives
+        let countAfterDetach = updates.count
+        advance(5)
+        scope.updateViewport(viewport.offsetBy(dx: 0, dy: 1)) // other geometry moves, this ad has no frame
+        #expect(updates.count == countAfterDetach)
+
+        // The widget is back: measurement resumes with the first update.
+        scope.updateCreativeFrame("ad", frame: creative(step: 2))
+        #expect(updates.count == countAfterDetach + 1)
+        #expect(updates.last?.isVisible == true)
+        #expect(updates.last?.isViewable == true)
+    }
+
     @Test("setHostVisible(false) resets the continuous timer like backgrounding")
     func hostHiddenResetsTimer() {
         let (scope, advance) = makeScope()

@@ -61,6 +61,36 @@ public final class WebAdScope {
         tracker.updateContentFrame(adUnitId, frame: frame)
     }
 
+    /// Geometry of one ad for the batch entry point.
+    public struct AdGeometry {
+        /// Whole ad frame, label included (lazy loading).
+        public let frame: CGRect
+        /// Creative-only frame (viewability).
+        public let creative: CGRect
+        public init(frame: CGRect, creative: CGRect) {
+            self.frame = frame
+            self.creative = creative
+        }
+    }
+
+    /// Preferred entry point: the viewport and every ad's geometry in ONE
+    /// call per rendered frame. Each state machine runs exactly one pass per
+    /// batch (the per-item methods above each run a pass of their own, so
+    /// N ads cost N passes — fine for a UIKit host updating a single row,
+    /// wasteful for a host that re-reports everything per frame).
+    public func updateGeometry(viewport: CGRect, ads: [String: AdGeometry]) {
+        var frames: [String: CGRect] = [:]
+        var creatives: [String: CGRect] = [:]
+        frames.reserveCapacity(ads.count)
+        creatives.reserveCapacity(ads.count)
+        for (adUnitId, geometry) in ads {
+            frames[adUnitId] = geometry.frame
+            creatives[adUnitId] = geometry.creative
+        }
+        manager.updateGeometry(bounds: viewport, frames: frames)
+        tracker.updateGeometry(viewport: viewport, contentFrames: creatives)
+    }
+
     // MARK: Registration
 
     /// Registers an ad unit for measurement (display standard). Ad unit ids
@@ -73,6 +103,15 @@ public final class WebAdScope {
     public func unregister(_ adUnitId: String) {
         manager.removeAd(adUnitId)
         tracker.unregister(adUnitId)
+    }
+
+    /// The host stopped reporting geometry for an ad whose `WebAdHostView`
+    /// it keeps alive for later re-attachment (recycled rows, disposed
+    /// widgets): load state, impression and verdict survive; nothing is
+    /// measured or transitioned until geometry is reported again.
+    public func detach(_ adUnitId: String) {
+        manager.detachAd(adUnitId)
+        tracker.detach(adUnitId)
     }
 
     /// Whether the hosting screen is on top. Pass `false` while another
@@ -96,9 +135,13 @@ public final class WebAdScope {
             .eraseToAnyPublisher()
     }
 
-    /// Every viewability measurement update for an ad (the UIKit-level
-    /// `.onViewabilityChange`).
+    /// Viewability updates for an ad (the UIKit-level `.onViewabilityChange`),
+    /// rate-limited for out-of-process hosts: the first update, every boolean
+    /// transition (`isVisible` / `isViewable` / `isAppActive`) and
+    /// `becameViewable` arrive immediately; ratio/dwell-only changes at most
+    /// every 67 ms with a trailing coalesced send, so the resting state always
+    /// arrives. Worst case ≤ 15 updates/s per ad; nothing while idle.
     public func viewabilityUpdates(for adUnitId: String) -> AnyPublisher<ViewabilityUpdate, Never> {
-        tracker.updates(for: adUnitId)
+        tracker.hostUpdates(for: adUnitId)
     }
 }

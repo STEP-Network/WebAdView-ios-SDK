@@ -87,6 +87,46 @@ package class LazyLoadingManager: ObservableObject {
         }
     }
 
+    /// Batch form (SwiftUI preference flow): all ad frames at once → ONE
+    /// throttled check, plus one immediate check if any frame is new.
+    package func updateAdFrames(_ frames: [String: CGRect]) {
+        var changed = false
+        var anyNew = false
+        for (adId, frame) in frames where adUnitFrames[adId] != frame {
+            if adUnitFrames[adId] == nil { anyNew = true }
+            adUnitFrames[adId] = frame
+            changed = true
+        }
+        guard changed else { return }
+        triggerVisibilityCheck()
+        if anyNew && !scrollViewBounds.isEmpty {
+            debugPrint("[SN] [LLM] New ad frame(s) registered, performing immediate visibility check")
+            checkAdVisibility()
+        }
+    }
+
+    /// Batch form for out-of-process hosts: viewport + all ad frames in one
+    /// call → at most one throttled check (and one immediate check for new ads).
+    package func updateGeometry(bounds: CGRect, frames: [String: CGRect]) {
+        var changed = false
+        var anyNew = false
+        if scrollViewBounds != bounds {
+            scrollViewBounds = bounds
+            changed = true
+        }
+        for (adId, frame) in frames where adUnitFrames[adId] != frame {
+            if adUnitFrames[adId] == nil { anyNew = true }
+            adUnitFrames[adId] = frame
+            changed = true
+        }
+        guard changed else { return }
+        triggerVisibilityCheck()
+        if anyNew && !scrollViewBounds.isEmpty {
+            debugPrint("[SN] [LLM] New ad frame(s) registered, performing immediate visibility check")
+            checkAdVisibility()
+        }
+    }
+
     /// Forgets an ad unit entirely (frame, state, unload candidacy). Hosts
     /// that destroy and re-create ad views (Flutter widgets, recycled rows)
     /// call this so a stale frame cannot keep transitioning a ghost ad.
@@ -97,6 +137,15 @@ package class LazyLoadingManager: ObservableObject {
             adStates.removeValue(forKey: adId)
             debugPrint("[SN] [LLM] Ad \(adId) removed from lazy loading")
         }
+    }
+
+    /// Forgets an ad's FRAME but keeps its load state: the host stopped
+    /// reporting geometry (a recycled row / disposed widget) while the ad's
+    /// webview is kept alive for re-attachment. No frame → no transitions
+    /// until the host reports again.
+    package func detachAd(_ adId: String) {
+        adUnitFrames.removeValue(forKey: adId)
+        unloadCandidates.removeValue(forKey: adId)
     }
 
     // Provides a Publisher for a specific ad unit's state

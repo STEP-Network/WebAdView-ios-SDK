@@ -29,6 +29,10 @@ public final class WebAdHostView: UIView {
         didSet { controller.onActiveViewImpression = onActiveViewImpression }
     }
 
+    /// The last creative size the page reported, if any — a host that
+    /// re-attaches a retained view sizes itself from this immediately.
+    public var lastAdSize: CGSize? { controller.lastAdSize }
+
     /// - Parameters:
     ///   - adUnitId: the ad unit, registered with `scope` by the host.
     ///   - scope: the scroll container's scope (held weakly).

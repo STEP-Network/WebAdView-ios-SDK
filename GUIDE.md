@@ -398,12 +398,14 @@ final class FeedViewController: UITableViewController {
     }
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        adScope.updateViewport(tableView.convert(tableView.bounds, to: nil))
+        // One batch per scroll event → one pass of each state machine.
+        var ads: [String: WebAdScope.AdGeometry] = [:]
         for (adUnitId, host) in hostViews where host.window != nil {
             let frame = host.convert(host.bounds, to: nil)
-            adScope.updateAdFrame(adUnitId, frame: frame)        // whole ad → lazy loading
-            adScope.updateCreativeFrame(adUnitId, frame: frame)  // creative only → viewability
+            ads[adUnitId] = .init(frame: frame,      // whole ad → lazy loading
+                                  creative: frame)   // creative only → viewability
         }
+        adScope.updateGeometry(viewport: tableView.convert(tableView.bounds, to: nil), ads: ads)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -423,14 +425,20 @@ final class FeedViewController: UITableViewController {
 ```
 
 Rules of the road: register every ad unit with the scope before its host
-view exists; feed `updateViewport` and the two frame updates on every
-scroll/layout change (the creative frame excludes your own "annonce" label
-if you draw one); create `WebAdHostView` only after `loadState(for:)` /
-`loadStates(for:)` reports `.fetched`; `viewabilityUpdates(for:)` and
-`WebAdHostView.onActiveViewImpression` give you the same signals as §7;
-`onAdSizeChange` tells you the delivered creative size so your cell can
-resize; call `unload()` and `unregister` when the screen goes away. All
-calls are main-thread only. The Flutter plugin's iOS adapter
+view exists; feed `updateGeometry(viewport:ads:)` on every scroll/layout
+change (one call for everything — the per-item `updateViewport` /
+`updateAdFrame` / `updateCreativeFrame` each run a pass of their own; the
+creative frame excludes your own "annonce" label if you draw one); create
+`WebAdHostView` only after `loadState(for:)` / `loadStates(for:)` reports
+`.fetched`; `viewabilityUpdates(for:)` (rate-limited to ≤ 15 updates/s per
+ad — transitions and `becameViewable` immediately, ratio changes
+coalesced) and `WebAdHostView.onActiveViewImpression` give you the same
+signals as §7; `onAdSizeChange` tells you the delivered creative size so
+your cell can resize (`lastAdSize` replays it to a cell that re-attaches a
+kept host view); when a recycled row stops showing an ad whose host view
+you keep around, call `detach(adUnitId)` so nothing is measured until you
+report its frame again; call `unload()` and `unregister` when the screen
+goes away. All calls are main-thread only. The Flutter plugin's iOS adapter
 (`Flutter/webadview_flutter/ios/.../WebAdPlatformView.swift`) is a complete
 reference consumer of this layer.
 
@@ -626,6 +634,17 @@ Per-ad cost is bounded by design: a webview only exists once lazy loading
 fetches it, `unloadingEnabled: true` tears down far-away ads in long
 feeds, and `List` row recycling destroys off-screen ad rows automatically
 (§5).
+
+**During scroll** (since 1.1.2) the SDK does a fixed, small amount of work
+per frame: one viewability pass per geometry change for the whole screen
+(not one per ad), at most 10 webview viewport resizes per second per ad
+while an ad crosses the screen edge (none while it is fully visible or
+fully hidden), JavaScript into the ad page only on transitions or ≥ 5 %
+ratio changes, and no webview creation that lazy loading did not ask for.
+With the debug flag on, `[SN] [PERF]` prints these counts once per second
+(evaluations, resizes, JS sends, webview creations with creation time) so
+a scroll-performance question can be answered with numbers instead of
+guesses.
 
 ## 9. STEP Network coordination checklist
 

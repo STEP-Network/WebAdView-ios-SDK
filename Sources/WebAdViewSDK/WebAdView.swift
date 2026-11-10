@@ -397,16 +397,13 @@ private struct LazyLoadAdInternalModifier: ViewModifier {
                 viewabilityTracker.updateScrollViewBounds(bounds)
             }
             .onPreferenceChange(AdFramePreferenceKey.self) { frames in
-                // Iterate through reported frames and update manager
-                for (adId, frame) in frames {
-                    manager.updateAdFrame(adId, frame: frame)
-                }
+                // One throttled check for the whole batch (not one per ad).
+                manager.updateAdFrames(frames)
             }
-            // Feed the creative-only frames to the viewability tracker
+            // Feed the creative-only frames to the viewability tracker —
+            // one evaluation per batch.
             .onPreferenceChange(AdContentFramePreferenceKey.self) { frames in
-                for (adId, frame) in frames {
-                    viewabilityTracker.updateContentFrame(adId, frame: frame)
-                }
+                viewabilityTracker.updateContentFrames(frames)
             }
             // Inject the manager into the environment for WebAdViews
             .environment(\.adVisibilityManager, manager)
@@ -436,6 +433,8 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
     
     //MARK: Callback for ad size changes
     var onAdSizeChange: ((CGSize) -> Void)?
+    /// The last `adSize` the page reported (replayed to a host that re-attaches).
+    private(set) var lastAdSize: CGSize?
     //MARK: Callback when GPT Active View declares the impression viewable
     var onActiveViewImpression: ((String) -> Void)?
     private let baseURL: String
@@ -667,6 +666,7 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
         webView.autoresizingMask = []
         webView.frame = targetFrame
         webView.scrollView.contentOffset = targetOffset
+        PerfCounters.increment(.webviewResizes)
         logClipStepIfMeaningful(clip, appliedFrame: targetFrame, appliedOffset: targetOffset)
     }
 
@@ -691,6 +691,7 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
             return
         }
         // json is JSONEncoder output — safe to splice as a JS object literal.
+        PerfCounters.increment(.jsViewabilitySends)
         let js = "window.stepnetwork && window.stepnetwork._onViewability && window.stepnetwork._onViewability(\(json));"
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -788,8 +789,14 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
         debugPrint("[SN] [LLM] WebAdViewController[\(id)]: Unloaded WebView")
     }
     //MARK: Setup WebView
+    /// One process pool for every ad webview: lets WebKit reuse web content
+    /// processes across ads instead of launching one per creative.
+    private static let sharedProcessPool = WKProcessPool()
+
     private func setupWebView() {
+        let creationStart = CACurrentMediaTime()
         let config = WKWebViewConfiguration()
+        config.processPool = Self.sharedProcessPool
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -810,6 +817,7 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
         webView.navigationDelegate = self
 
         view.addSubview(webView)
+        PerfCounters.recordWebViewCreation(milliseconds: (CACurrentMediaTime() - creationStart) * 1000)
         debugPrint("[SN] [NATIVE] WebAdViewController: WebView setup")
     }
 
@@ -830,6 +838,7 @@ class WebAdViewController: UIViewController, WKUIDelegate, WKNavigationDelegate,
             } else if type == "adSize" {
                 if let width = dict["width"] as? CGFloat, let height = dict["height"] as? CGFloat {
                     debugPrint("[SN] [WebAdView] [HTML] [adSize] width: \(width), height: \(height)")
+                    lastAdSize = CGSize(width: width, height: height)
                     onAdSizeChange?(CGSize(width: width, height: height))
                     // The creative exists now: native viewability may start counting.
                     viewabilityTrackerRef?.markRendered(adUnitId)

@@ -194,6 +194,21 @@ window.stepnetwork._onViewability(p)  // NATIVE ENTRY POINT — do not call from
 - Ratio-only changes — sent when |Δratio| ≥ 0.05.
 - Nothing while idle. Worst case ~4 messages/s per visible ad during scroll.
 
+**Host stream (out-of-process hosts: the Flutter channel, UIKit hosts via
+`WebAdScope.viewabilityUpdates`)** — a second, rate-limited stream fed by
+the same evaluation: the first update, every boolean transition and
+`becameViewable` are sent immediately; otherwise an update is sent when
+|Δratio| ≥ 0.05 or |Δdwell| ≥ 0.1 s AND ≥ 67 ms have passed since the last
+send, with a trailing coalesced send so the resting state always arrives.
+≤ 15 updates/s per ad, none while idle, none for ads the host did not ask
+about (`registerAd.wantsViewability = false`, default true when absent).
+
+**Geometry batches.** A host that re-reports everything per frame (Flutter)
+uses the batch entry point (`updateGeometry(viewport, ads)`): the viewport
+and every ad's frames in ONE call, after which each state machine runs
+exactly ONE pass (`evaluate` / throttled visibility check) — never one per
+ad. The per-item methods remain for hosts updating a single row.
+
 ## 4.4 Viewport resizing (Module-6, DEFAULT — per-ad opt-out)
 
 Native resizes the ad webview to the creative's visible slice
@@ -205,7 +220,12 @@ Native resizes the ad webview to the creative's visible slice
 - The native container keeps the full ad frame; only the webview inside it
   resizes, so layout never shifts.
 - Fully hidden → 1pt sliver kept alive (zero frames can suspend media/JS).
-- Change-driven with 2pt tolerance; no fixed-rate resizing.
+- Change-driven with 2pt tolerance, paced: after the tolerance, a regime
+  change (full ↔ partial ↔ hidden) applies immediately; otherwise at most
+  one apply per 100 ms per ad, the latest pending clip flushed by a
+  trailing timer. Bound: the page viewport lags true geometry by ≤ 100 ms
+  while scrolling and is exact within 100 ms of the geometry settling.
+  ≤ 10 webview resizes/s per ad; 0 while fully visible or fully hidden.
 - Android equivalent: resize the WebView inside a stable container and set
   `WebView.scrollTo(x, y)` to the slice origin.
 
@@ -292,6 +312,21 @@ unloaded ──(within fetchThreshold)──────────────
 > ad page (Chrome DevTools over `adb forward … webview_devtools_remote_<pid>`)
 > across several refreshes; `WebViewClient.onScaleChanged` is logged under
 > `[SN] [CLIP]` and must stay silent.
+
+**Ad retention across host disposal (both platforms, 2026-11-10).** A
+Flutter builder list disposes the ad widget as soon as the row leaves the
+cache extent. The plugin keeps the ad natively: `unregisterAd` for a
+`fetched`/`displayed` ad only DETACHES it (`WebAdScope.detach` /
+`AdScope.detach`: frames dropped, in-progress continuous timer reset, load
+state + rendered flag + latched verdict kept), and the disposed platform
+view parks its `WebAdHostView` / `AdWebViewController` in the scope entry's
+retained pool (≤ 4 per scope, oldest unloaded and fully unregistered when
+full; everything unloaded with the scope). A new platform view for the same
+ad unit takes the retained host over (and replays the last `adSize` to the
+new widget) — or, because Flutter may create the replacement view before
+it disposes the old one, the host a still-live view shows. No new webview,
+page load or ad request; the impression continues. Nothing in the web
+contract changes.
 
 **Transfers 1:1 (this document):** template URL contract, message schemas,
 targeting conventions, both state machines, config surface, consent-gating

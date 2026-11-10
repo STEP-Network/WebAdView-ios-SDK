@@ -224,9 +224,101 @@ struct TrackerEmitPolicyTests {
         tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 751, width: 100, height: 100)) // 1pt → suppressed
         #expect(clips.count == afterFirst)
 
-        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 780, width: 100, height: 100)) // 30pt → emits
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 780, width: 100, height: 100)) // 30pt → pending (cadence)
+        #expect(clips.count == afterFirst)
+        tracker.flushTrailingForTesting()
         #expect(clips.count == afterFirst + 1)
         #expect(clips.last?.sliceFrame.height == 20)
+    }
+
+    @Test("Clip cadence: ≤1 emit per 100ms per ad while moving, regime changes immediate, trailing flush lands the final slice")
+    func clipCadence() {
+        let (tracker, advance) = makeTracker()
+        var clips: [ViewportClipCalculator.Clip] = []
+        var scheduled = 0
+        tracker.scheduleTrailing = { _, _ in scheduled += 1; return AnyCancellable {} }
+        tracker.register("ad", mode: .display)
+        let sub = tracker.clipUpdates(for: "ad").sink { clips.append($0) }
+        defer { sub.cancel() }
+
+        tracker.updateScrollViewBounds(bounds)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 750, width: 100, height: 100)) // partial: immediate
+        #expect(clips.count == 1)
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 740, width: 100, height: 100)) // pending
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 730, width: 100, height: 100)) // latest wins
+        #expect(clips.count == 1)
+        #expect(scheduled == 1)
+        tracker.flushTrailingForTesting()
+        #expect(clips.count == 2)
+        #expect(clips.last?.sliceFrame.height == 70)
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 600, width: 100, height: 100)) // partial → full: immediate
+        #expect(clips.count == 3)
+        #expect(clips.last?.isFullyVisible == true)
+        advance(0.1)
+        tracker.updateContentFrame("ad", frame: CGRect(x: 0, y: 760, width: 100, height: 100)) // full → partial: immediate
+        #expect(clips.count == 4)
+    }
+
+    @Test("Host stream: first update + transitions immediate, ratio changes coalesced to 67ms, idle = silent")
+    func hostEmitPolicy() {
+        let (tracker, advance) = makeTracker()
+        var host: [ViewabilityUpdate] = []
+        var raw = 0
+        tracker.scheduleTrailing = { _, _ in AnyCancellable {} }
+        tracker.register("ad", mode: .display)
+        tracker.markRendered("ad")
+        let subs = [
+            tracker.hostUpdates(for: "ad").sink { host.append($0) },
+            tracker.updates(for: "ad").sink { _ in raw += 1 },
+        ]
+        defer { subs.forEach { $0.cancel() } }
+
+        tracker.updateScrollViewBounds(bounds)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.60))
+        #expect(host.count == 1) // first
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.62))
+        #expect(host.count == 1) // < 5 %: not significant
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.70))
+        #expect(host.count == 1) // ≥ 5 % but within 67 ms: pending
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.40))
+        #expect(host.count == 2) // visible → false: immediate
+        #expect(host.last?.isVisible == false)
+        #expect(raw > host.count)
+        tracker.flushTrailingForTesting()
+        #expect(host.count == 2) // the pending 0.70 was superseded
+        advance(0.1)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.80))
+        #expect(host.count == 3) // transition back
+        advance(0.016)
+        tracker.updateContentFrame("ad", frame: adFrame(visibleFraction: 0.90))
+        #expect(host.count == 3) // pending
+        tracker.flushTrailingForTesting()
+        #expect(host.count == 4)
+        let lastRatio = host.last?.ratio ?? 0
+        #expect(abs(lastRatio - 0.90) < 0.001)
+    }
+
+    @Test("updateGeometry batch: one evaluation for all ads, none when nothing moved")
+    func batchGeometry() {
+        let (tracker, _) = makeTracker()
+        var updates = 0
+        for id in ["a", "b", "c"] {
+            tracker.register(id, mode: .display)
+            tracker.markRendered(id)
+        }
+        let subs = ["a", "b", "c"].map { tracker.updates(for: $0).sink { _ in updates += 1 } }
+        defer { subs.forEach { $0.cancel() } }
+        let frames = ["a": adFrame(visibleFraction: 0.6), "b": adFrame(visibleFraction: 0.7), "c": adFrame(visibleFraction: 0.8)]
+        tracker.updateGeometry(viewport: bounds, contentFrames: frames)
+        #expect(updates == 3) // one pass → one update per ad (not 3 × 3)
+        tracker.updateGeometry(viewport: bounds, contentFrames: frames)
+        #expect(updates == 3) // nothing moved
     }
 
     @Test("App resigning active resets counting engines (via real notification)")
